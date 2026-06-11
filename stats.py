@@ -79,37 +79,23 @@ _image = Image.new("1", (WIDTH, HEIGHT))
 _draw  = ImageDraw.Draw(_image)
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
+# Sizes follow the luma.oled convention: one "hero" size for key numbers,
+# a readable body size, and a compact size for titles/footers.
 
 def _load_fonts() -> dict:
     try:
         return {
+            "xl":   ImageFont.truetype(FONT_PATH, 24),
             "lg":   ImageFont.truetype(FONT_PATH, 16),
             "md":   ImageFont.truetype(FONT_PATH, 12),
             "sm":   ImageFont.truetype(FONT_PATH,  8),
-            "icon": ImageFont.truetype(ICON_FONT_PATH, 14),
         }
     except OSError as exc:
         print(f"[warn] font load failed ({exc}), using built-in default", file=sys.stderr)
         fallback = ImageFont.load_default()
-        return {"lg": fallback, "md": fallback, "sm": fallback, "icon": fallback}
+        return {"xl": fallback, "lg": fallback, "md": fallback, "sm": fallback}
 
 F = _load_fonts()
-
-# ── Icon glyphs — Line Awesome / Font Awesome codepoints ─────────────────────
-# Same font as the original stats script (lineawesome-webfont.ttf).
-
-I_SERVER = chr(0xF233)   # fa-server
-I_CUBE   = chr(0xF1B2)   # fa-cube        (pod)
-I_HEART  = chr(0xF004)   # fa-heart       (health)
-I_ROCKET = chr(0xF135)   # fa-rocket      (deployments)
-I_CLOUD  = chr(0xF0C2)   # fa-cloud       (namespace)
-I_WIFI   = chr(0xF1EB)   # fa-wifi        (services / network)
-I_CPU    = chr(0xF2DB)   # fa-microchip
-I_MEM    = chr(0xF538)   # fa-memory
-I_CHECK  = chr(0xF058)   # fa-check-circle
-I_WARN   = chr(0xF071)   # fa-exclamation-triangle
-I_CLOCK  = chr(0xF017)   # fa-clock-o
-I_DASH   = chr(0xF0E4)   # fa-tachometer  (dashboard / overview)
 
 # ── Drawing Primitives ────────────────────────────────────────────────────────
 
@@ -123,31 +109,48 @@ def _flush() -> None:
 def _text(x: int, y: int, s: str, size: str = "sm", fill: int = 255) -> None:
     _draw.text((x, y), s, font=F[size], fill=fill)
 
-def _icon(x: int, y: int, glyph: str, fill: int = 255) -> None:
-    _draw.text((x, y), glyph, font=F["icon"], fill=fill)
+def _ctext(y: int, s: str, size: str = "md") -> None:
+    """Horizontally centred text."""
+    bb = F[size].getbbox(s)
+    tw = bb[2] - bb[0]
+    _draw.text(((WIDTH - tw) // 2, y), s, font=F[size], fill=255)
 
-def _header(title: str, ico: str = None) -> None:
-    """Inverted 13-pixel header bar across the full width."""
-    _draw.rectangle((0, 0, WIDTH - 1, 13), fill=255)
-    if ico:
-        _draw.text((1, 0),  ico,   font=F["icon"], fill=0)
-        _draw.text((17, 1), title, font=F["md"],   fill=0)
-    else:
-        bbox = F["md"].getbbox(title)
-        tw   = bbox[2] - bbox[0]
-        _draw.text(((WIDTH - tw) // 2, 1), title, font=F["md"], fill=0)
+def _rtext(y: int, s: str, size: str = "md") -> None:
+    """Right-aligned text, flush with the inner border edge."""
+    bb = F[size].getbbox(s)
+    tw = bb[2] - bb[0]
+    _draw.text((WIDTH - 3 - tw, y), s, font=F[size], fill=255)
+
+def _row(y: int, label: str, value: str, lsize: str = "md", rsize: str = "md") -> None:
+    """Left label + right-aligned value spanning the full usable width."""
+    _draw.text((3, y), label, font=F[lsize], fill=255)
+    bb = F[rsize].getbbox(value)
+    tw = bb[2] - bb[0]
+    _draw.text((WIDTH - 3 - tw, y), value, font=F[rsize], fill=255)
+
+def _frame(title: str, timestamp: str = "") -> None:
+    """luma.oled-style chrome: outer border + title row + divider line.
+
+    Layout (y coords):
+      0-10  title row  (8 px font)
+      11    divider line
+      13+   content area
+    """
+    _draw.rectangle((0, 0, WIDTH - 1, HEIGHT - 1), outline=255)
+    _draw.text((3, 2), title, font=F["sm"], fill=255)
+    if timestamp:
+        bb = F["sm"].getbbox(timestamp)
+        tw = bb[2] - bb[0]
+        _draw.text((WIDTH - 3 - tw, 2), timestamp, font=F["sm"], fill=255)
+    _draw.line([(1, 11), (WIDTH - 2, 11)], fill=255, width=1)
 
 def _pbar(x: int, y: int, w: int, h: int, pct: int) -> None:
-    """Outlined progress bar. pct = 0–100."""
+    """Outlined progress bar filling left-to-right. pct = 0–100."""
     pct = max(0, min(100, pct))
     _draw.rectangle((x, y, x + w - 1, y + h - 1), outline=255, fill=0)
     filled = int((w - 2) * pct / 100)
     if filled > 0:
         _draw.rectangle((x + 1, y + 1, x + filled, y + h - 2), fill=255)
-
-def _dot(x: int, y: int, ok: bool) -> None:
-    """8×8 filled (ok) or outlined (not-ok) status dot."""
-    _draw.ellipse((x, y, x + 8, y + 8), outline=255, fill=(255 if ok else 0))
 
 # ── Kubernetes Data Fetching ──────────────────────────────────────────────────
 
@@ -218,103 +221,109 @@ def fetch_cluster_data() -> dict:
     return data
 
 # ── Screen Renderers ──────────────────────────────────────────────────────────
+# Layout grid (all screens share this structure):
+#   y= 0      outer border top
+#   y= 2      title text (sm, 8 px)  |  timestamp right-aligned
+#   y=11      horizontal divider
+#   y=13      content line 1  (md, 12 px)
+#   y=25      content line 2
+#   y=37      content line 3
+#   y=49      content line 4  /  progress bar
+#   y=63      outer border bottom
 
 def _screen_splash() -> None:
     _clear()
-    _header("k3s DISPLAY")
-    _text(14, 17, "Kubernetes", "lg")
-    _text(26, 35, "Cluster", "md")
-    _text(18, 50, "Starting...", "md")
+    _frame("k3s CLUSTER")
+    _ctext(15, "Kubernetes", "lg")
+    _ctext(34, "Loading...", "md")
 
 
 def _screen_error(msg: str) -> None:
     _clear()
-    _header("ERROR")
-    lines = [msg[i:i + 16] for i in range(0, len(msg), 16)]
+    _frame("ERROR")
+    lines = [msg[i:i + 18] for i in range(0, len(msg), 18)]
     for i, line in enumerate(lines[:3]):
-        _text(2, 16 + i * 16, line, "md")
+        _text(3, 13 + i * 14, line, "md")
 
 
 def _screen_overview(d: dict) -> None:
+    """4-row overview: Nodes / Pods / Namespaces / Services.
+    Values right-aligned so numbers line up on the right edge.
+    """
     _clear()
-    _header("OVERVIEW")
-
     nr = sum(1 for n in d["nodes"] if n["ready"])
     nt = len(d["nodes"])
-    pr = d["pods"]["running"]
-    pt = d["pods"]["total"]
-
-    _text(2, 15, f"Nodes:  {nr} / {nt}", "md")
-    _text(2, 29, f"Pods:   {pr} / {pt}", "md")
-    _text(2, 43, f"NS: {d['ns_count']}   Svc: {d['svc_count']}", "md")
-    _text(2, 55, f"Updated {d['updated_at']}", "sm")
+    _frame("OVERVIEW", d["updated_at"])
+    _row(13, "Nodes",      f"{nr} / {nt}")
+    _row(25, "Pods",       f"{d['pods']['running']} / {d['pods']['total']}")
+    _row(37, "Namespaces", str(d["ns_count"]))
+    _row(49, "Services",   str(d["svc_count"]))
 
 
 def _screen_pods(d: dict) -> None:
+    """Running / Pending / Failed counts + a full-width progress bar."""
     _clear()
-    _header("POD STATUS")
-
     p     = d["pods"]
     total = max(p["total"], 1)
-
-    _text(2, 15, f"Run:  {p['running']}   Pend: {p['pending']}", "md")
-    _pbar(2, 29, 124, 8, p["running"] * 100 // total)
-    _text(2, 40, f"Fail: {p['failed']}   Succ: {p['succeeded']}", "md")
-    _text(2, 55, f"Total: {p['total']}", "sm")
+    _frame("PODS", d["updated_at"])
+    _row(13, "Running", str(p["running"]))
+    _row(25, "Pending", str(p["pending"]))
+    _row(37, "Failed",  str(p["failed"]))
+    _pbar(3, 50, WIDTH - 6, 10, p["running"] * 100 // total)
 
 
 def _screen_node(d: dict, idx: int) -> None:
+    """Node name large + status right, then CPU / RAM below a divider."""
     _clear()
     nodes = d["nodes"]
-
     if not nodes:
-        _header("NODES")
-        _text(4, 24, "No nodes found", "md")
+        _frame("NODES")
+        _ctext(28, "No nodes found", "md")
         return
-
-    n  = nodes[idx % len(nodes)]
-    pg = f"NODE {idx % len(nodes) + 1}/{len(nodes)}"
-    _header(pg)
-
-    status = "Ready" if n["ready"] else "NotReady"
-    _text(2, 15, n["name"][:16], "md")
-    _text(2, 29, f"Status: {status}", "md")
-    _text(2, 43, f"CPU:  {n['cpu']} cores", "md")
-    _text(2, 55, f"RAM:  {n['mem_mb'] / 1024:.1f} GB", "sm")
+    n      = nodes[idx % len(nodes)]
+    num    = f"{idx % len(nodes) + 1}/{len(nodes)}"
+    _frame(f"NODE {num}", d["updated_at"])
+    # Node name in large font, status right-aligned at same baseline
+    _draw.text((3, 13), n["name"][:14], font=F["lg"], fill=255)
+    status = "READY" if n["ready"] else "DOWN"
+    bb     = F["md"].getbbox(status)
+    _draw.text((WIDTH - 3 - (bb[2] - bb[0]), 17), status, font=F["md"], fill=255)
+    _draw.line([(1, 31), (WIDTH - 2, 31)], fill=255, width=1)
+    _row(34, "CPU", f"{n['cpu']} cores")
+    _row(47, "RAM", f"{n['mem_mb'] / 1024:.1f} GB")
 
 
 def _screen_deployments(d: dict) -> None:
+    """Hero '6 / 7' number centred in xl font, then progress bar + label."""
     _clear()
-    _header("DEPLOYMENTS")
-
     deps  = d["deps"]
     total = max(deps["total"], 1)
     pct   = deps["ready"] * 100 // total
-
-    _text(4, 15, f"{deps['ready']} / {deps['total']}  Ready", "lg")
-    _pbar(2, 34, 124, 10, pct)
-    _text(2, 47, f"{pct}% healthy", "md")
-    _text(2, 55, f"Svc: {d['svc_count']}   NS: {d['ns_count']}", "sm")
+    _frame("DEPLOYMENTS", d["updated_at"])
+    _ctext(13, f"{deps['ready']} / {deps['total']}", "xl")  # 24 px hero
+    _pbar(3, 40, WIDTH - 6, 10, pct)
+    _ctext(52, f"{pct}%  healthy", "sm")
 
 
 def _screen_health(d: dict) -> None:
+    """OK / !! status marker + label + right-aligned detail for each check."""
     _clear()
-    _header("HEALTH")
-
     nr   = sum(1 for n in d["nodes"] if n["ready"])
     nt   = len(d["nodes"])
     deps = d["deps"]
+    _frame("HEALTH", d["updated_at"])
 
-    def _row(y: int, label: str, ok: bool, detail: str) -> None:
+    def _hrow(y: int, label: str, ok: bool, detail: str) -> None:
         mark = "OK" if ok else "!!"
-        _text(2, y, f"[{mark}] {label:<8}{detail}", "md")
+        _draw.text((3,  y), mark,  font=F["md"], fill=255)
+        _draw.text((26, y), label, font=F["md"], fill=255)
+        bb = F["md"].getbbox(detail)
+        _draw.text((WIDTH - 3 - (bb[2] - bb[0]), y), detail, font=F["md"], fill=255)
 
-    _row(15, "Nodes",  nr == nt,                   f"{nr}/{nt}")
-    _row(29, "Pods",   d["pods"]["failed"] == 0,   f"{d['pods']['failed']} err")
-    _row(43, "Deploy", deps["ready"] == deps["total"],
-         f"{deps['ready']}/{deps['total']}")
-
-    _text(2, 55, f"Updated {d['updated_at']}", "sm")
+    _hrow(13, "Nodes",       nr == nt,                      f"{nr}/{nt}")
+    _hrow(25, "Pods",        d["pods"]["failed"] == 0,      f"{d['pods']['failed']} err")
+    _hrow(37, "Deployments", deps["ready"] == deps["total"],
+          f"{deps['ready']}/{deps['total']}")
 
 # ── Screen Sequencer ──────────────────────────────────────────────────────────
 
