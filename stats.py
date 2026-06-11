@@ -48,7 +48,7 @@ KUBECONFIG_PATH = os.environ.get(
 FONT_PATH       = os.path.join(_SCRIPT_DIR, "PixelOperator.ttf")
 ICON_FONT_PATH  = os.path.join(_SCRIPT_DIR, "lineawesome-webfont.ttf")
 
-SCREEN_DURATION = 5.0     # seconds each screen is displayed
+SCREEN_DURATION = 10.0    # seconds each screen is displayed
 FETCH_INTERVAL  = 30.0    # seconds between Kubernetes API refreshes
 OLED_ADDR       = 0x3C
 OLED_ROTATION   = int(os.environ.get("OLED_ROTATION", "1"))
@@ -221,164 +221,100 @@ def fetch_cluster_data() -> dict:
 
 def _screen_splash() -> None:
     _clear()
-    _header("k3s  DISPLAY")
-    _text(18, 18, "Kubernetes", "lg")
-    _text(34, 37, "Cluster", "md")
-    _text(26, 53, "Initialising...", "sm")
+    _header("k3s DISPLAY")
+    _text(14, 17, "Kubernetes", "lg")
+    _text(26, 35, "Cluster", "md")
+    _text(18, 50, "Starting...", "md")
 
 
 def _screen_error(msg: str) -> None:
     _clear()
-    _header("  ERROR", ico=I_WARN)
-    lines = [msg[i:i + 20] for i in range(0, len(msg), 20)]
+    _header("ERROR")
+    lines = [msg[i:i + 16] for i in range(0, len(msg), 16)]
     for i, line in enumerate(lines[:3]):
-        _text(2, 16 + i * 15, line, "sm")
+        _text(2, 16 + i * 16, line, "md")
 
 
 def _screen_overview(d: dict) -> None:
-    """
-    ┌───────────────────────┐
-    │▓ OVERVIEW             │  ← inverted header
-    │⊞ Nodes    2 / 2       │
-    │⬡ Pods    12 / 14  ▓▓▓ │
-    │☁ NS:5   Svc:8         │
-    │⏱ Updated 12:34        │
-    └───────────────────────┘
-    """
     _clear()
-    _header("OVERVIEW", ico=I_DASH)
+    _header("OVERVIEW")
 
     nr = sum(1 for n in d["nodes"] if n["ready"])
     nt = len(d["nodes"])
     pr = d["pods"]["running"]
     pt = d["pods"]["total"]
 
-    _icon(1, 15, I_SERVER);  _text(17, 16, f"Nodes    {nr} / {nt}", "sm")
-    _icon(1, 27, I_CUBE);    _text(17, 28, f"Pods    {pr} / {pt}", "sm")
-    # mini bar showing pod health
-    _pbar(17, 37, 110, 4, pr * 100 // max(pt, 1))
-    _icon(1, 43, I_CLOUD);   _text(17, 44, f"NS: {d['ns_count']}   Svc: {d['svc_count']}", "sm")
-    _icon(1, 55, I_CLOCK);   _text(17, 56, f"Updated {d['updated_at']}", "sm")
+    _text(2, 15, f"Nodes:  {nr} / {nt}", "md")
+    _text(2, 29, f"Pods:   {pr} / {pt}", "md")
+    _text(2, 43, f"NS: {d['ns_count']}   Svc: {d['svc_count']}", "md")
+    _text(2, 55, f"Updated {d['updated_at']}", "sm")
 
 
 def _screen_pods(d: dict) -> None:
-    """
-    ┌───────────────────────┐
-    │⬡ POD STATUS           │
-    │Running   12  [▓▓▓▓▓▓] │
-    │Pending    2  [▓       ]│
-    │Failed     0  [        ]│
-    │Total: 14  Succ: 1      │
-    └───────────────────────┘
-    """
     _clear()
-    _header("POD STATUS", ico=I_CUBE)
+    _header("POD STATUS")
 
     p     = d["pods"]
     total = max(p["total"], 1)
 
-    def _row(y: int, label: str, count: int) -> None:
-        _text(2, y,  label, "sm")
-        _text(57, y, f"{count:>3}", "sm")
-        _pbar(75, y + 1, 51, 6, count * 100 // total)
-
-    _row(16, "Running",  p["running"])
-    _row(28, "Pending",  p["pending"])
-    _row(40, "Failed",   p["failed"])
-    _text(2,  53, f"Total: {p['total']}", "sm")
-    _text(72, 53, f"Succ: {p['succeeded']}", "sm")
+    _text(2, 15, f"Run:  {p['running']}   Pend: {p['pending']}", "md")
+    _pbar(2, 29, 124, 8, p["running"] * 100 // total)
+    _text(2, 40, f"Fail: {p['failed']}   Succ: {p['succeeded']}", "md")
+    _text(2, 55, f"Total: {p['total']}", "sm")
 
 
 def _screen_node(d: dict, idx: int) -> None:
-    """
-    ┌───────────────────────┐
-    │⊞ NODE  1 / 2          │
-    │raspberrypi         ●  │  ● = Ready indicator
-    │── ── ── ── ── ── ── ──│
-    │⚙  4 CPU cores         │
-    │≡  3.7 GB RAM          │
-    └───────────────────────┘
-    """
     _clear()
     nodes = d["nodes"]
 
     if not nodes:
-        _header("NODES", ico=I_SERVER)
-        _text(4, 24, "No nodes found", "sm")
+        _header("NODES")
+        _text(4, 24, "No nodes found", "md")
         return
 
-    n   = nodes[idx % len(nodes)]
-    pg  = f"NODE  {idx % len(nodes) + 1} / {len(nodes)}"
-    _header(pg, ico=I_SERVER)
+    n  = nodes[idx % len(nodes)]
+    pg = f"NODE {idx % len(nodes) + 1}/{len(nodes)}"
+    _header(pg)
 
-    # Node name (medium font) + status dot
-    _text(2, 16, n["name"][:12], "md")
-    _dot(115, 17, n["ready"])
-
-    # Divider line
-    _draw.line([(0, 30), (WIDTH, 30)], fill=255, width=1)
-
-    # CPU + Memory
-    _icon(1,  33, I_CPU)
-    _text(17, 34, f"{n['cpu']} CPU core(s)", "sm")
-
-    _icon(1,  46, I_MEM)
-    _text(17, 47, f"{n['mem_mb'] / 1024:.1f} GB RAM", "sm")
+    status = "Ready" if n["ready"] else "NotReady"
+    _text(2, 15, n["name"][:16], "md")
+    _text(2, 29, f"Status: {status}", "md")
+    _text(2, 43, f"CPU:  {n['cpu']} cores", "md")
+    _text(2, 55, f"RAM:  {n['mem_mb'] / 1024:.1f} GB", "sm")
 
 
 def _screen_deployments(d: dict) -> None:
-    """
-    ┌───────────────────────┐
-    │🚀 DEPLOYMENTS         │
-    │  6 / 7  Ready         │
-    │[▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒] │  86%
-    │  86% healthy          │
-    │  Services: 8  NS: 5   │
-    └───────────────────────┘
-    """
     _clear()
-    _header("DEPLOYMENTS", ico=I_ROCKET)
+    _header("DEPLOYMENTS")
 
     deps  = d["deps"]
     total = max(deps["total"], 1)
     pct   = deps["ready"] * 100 // total
 
-    _text(10, 16, f"{deps['ready']} / {deps['total']}  Ready", "md")
-    _pbar(2, 31, 124, 9, pct)
-    _text(2,  44, f"{pct}% healthy", "sm")
-    _text(72, 44, f"Svc: {d['svc_count']}", "sm")
-    _text(2,  55, f"Namespaces: {d['ns_count']}", "sm")
+    _text(4, 15, f"{deps['ready']} / {deps['total']}  Ready", "lg")
+    _pbar(2, 34, 124, 10, pct)
+    _text(2, 47, f"{pct}% healthy", "md")
+    _text(2, 55, f"Svc: {d['svc_count']}   NS: {d['ns_count']}", "sm")
 
 
 def _screen_health(d: dict) -> None:
-    """
-    ┌───────────────────────┐
-    │♥ HEALTH               │
-    │● Nodes    2 / 2       │  ● = pass  ○ = fail
-    │● Pods     0 errors    │
-    │● Deploy   6 / 7       │
-    │⏱ Updated  12:34       │
-    └───────────────────────┘
-    """
     _clear()
-    _header("HEALTH", ico=I_HEART)
+    _header("HEALTH")
 
     nr   = sum(1 for n in d["nodes"] if n["ready"])
     nt   = len(d["nodes"])
     deps = d["deps"]
 
     def _row(y: int, label: str, ok: bool, detail: str) -> None:
-        _dot(2, y, ok)
-        _text(14, y + 1, label, "sm")
-        _text(60, y + 1, detail, "sm")
+        mark = "OK" if ok else "!!"
+        _text(2, y, f"[{mark}] {label:<8}{detail}", "md")
 
-    _row(15, "Nodes ",  nr == nt,                    f"{nr} / {nt}")
-    _row(28, "Pods  ",  d["pods"]["failed"] == 0,    f"{d['pods']['failed']} err")
-    _row(41, "Deploy",  deps["ready"] == deps["total"],
-         f"{deps['ready']} / {deps['total']}")
+    _row(15, "Nodes",  nr == nt,                   f"{nr}/{nt}")
+    _row(29, "Pods",   d["pods"]["failed"] == 0,   f"{d['pods']['failed']} err")
+    _row(43, "Deploy", deps["ready"] == deps["total"],
+         f"{deps['ready']}/{deps['total']}")
 
-    _icon(1,  54, I_CLOCK)
-    _text(17, 55, f"Updated {d['updated_at']}", "sm")
+    _text(2, 55, f"Updated {d['updated_at']}", "sm")
 
 # ── Screen Sequencer ──────────────────────────────────────────────────────────
 
