@@ -132,17 +132,17 @@ def _frame(title: str, timestamp: str = "") -> None:
     """luma.oled-style chrome: outer border + title row + divider line.
 
     Layout (y coords):
-      0-10  title row  (8 px font)
-      11    divider line
-      13+   content area
+      0-15  title row  (md, 12 px)
+      15    divider line
+      17+   content area
     """
     _draw.rectangle((0, 0, WIDTH - 1, HEIGHT - 1), outline=255)
-    _draw.text((3, 2), title, font=F["sm"], fill=255)
+    _draw.text((3, 2), title, font=F["md"], fill=255)
     if timestamp:
-        bb = F["sm"].getbbox(timestamp)
+        bb = F["md"].getbbox(timestamp)
         tw = bb[2] - bb[0]
-        _draw.text((WIDTH - 3 - tw, 2), timestamp, font=F["sm"], fill=255)
-    _draw.line([(1, 11), (WIDTH - 2, 11)], fill=255, width=1)
+        _draw.text((WIDTH - 3 - tw, 2), timestamp, font=F["md"], fill=255)
+    _draw.line([(1, 15), (WIDTH - 2, 15)], fill=255, width=1)
 
 def _pbar(x: int, y: int, w: int, h: int, pct: int) -> None:
     """Outlined progress bar filling left-to-right. pct = 0–100."""
@@ -223,19 +223,19 @@ def fetch_cluster_data() -> dict:
 # ── Screen Renderers ──────────────────────────────────────────────────────────
 # Layout grid (all screens share this structure):
 #   y= 0      outer border top
-#   y= 2      title text (sm, 8 px)  |  timestamp right-aligned
-#   y=11      horizontal divider
-#   y=13      content line 1  (md, 12 px)
-#   y=25      content line 2
-#   y=37      content line 3
-#   y=49      content line 4  /  progress bar
+#   y= 2      title text (md, 12 px)  |  timestamp right-aligned
+#   y=15      horizontal divider
+#   y=17      content line 1  (md, 12 px)
+#   y=28      content line 2
+#   y=39      content line 3
+#   y=50      content line 4  /  progress bar
 #   y=63      outer border bottom
 
 def _screen_splash() -> None:
     _clear()
     _frame("k3s CLUSTER")
-    _ctext(15, "Kubernetes", "lg")
-    _ctext(34, "Loading...", "md")
+    _ctext(19, "Kubernetes", "lg")
+    _ctext(38, "Loading...", "md")
 
 
 def _screen_error(msg: str) -> None:
@@ -243,7 +243,7 @@ def _screen_error(msg: str) -> None:
     _frame("ERROR")
     lines = [msg[i:i + 18] for i in range(0, len(msg), 18)]
     for i, line in enumerate(lines[:3]):
-        _text(3, 13 + i * 14, line, "md")
+        _text(3, 17 + i * 14, line, "md")
 
 
 def _screen_overview(d: dict) -> None:
@@ -254,10 +254,10 @@ def _screen_overview(d: dict) -> None:
     nr = sum(1 for n in d["nodes"] if n["ready"])
     nt = len(d["nodes"])
     _frame("OVERVIEW", d["updated_at"])
-    _row(13, "Nodes",      f"{nr} / {nt}")
-    _row(25, "Pods",       f"{d['pods']['running']} / {d['pods']['total']}")
-    _row(37, "Namespaces", str(d["ns_count"]))
-    _row(49, "Services",   str(d["svc_count"]))
+    _row(17, "Nodes",      f"{nr} / {nt}")
+    _row(28, "Pods",       f"{d['pods']['running']} / {d['pods']['total']}")
+    _row(39, "Namespaces", str(d["ns_count"]))
+    _row(50, "Services",   str(d["svc_count"]))
 
 
 def _screen_pods(d: dict) -> None:
@@ -266,10 +266,10 @@ def _screen_pods(d: dict) -> None:
     p     = d["pods"]
     total = max(p["total"], 1)
     _frame("PODS", d["updated_at"])
-    _row(13, "Running", str(p["running"]))
-    _row(25, "Pending", str(p["pending"]))
-    _row(37, "Failed",  str(p["failed"]))
-    _pbar(3, 50, WIDTH - 6, 10, p["running"] * 100 // total)
+    _row(17, "Running", str(p["running"]))
+    _row(28, "Pending", str(p["pending"]))
+    _row(39, "Failed",  str(p["failed"]))
+    _pbar(3, 52, WIDTH - 6, 10, p["running"] * 100 // total)
 
 
 def _screen_node(d: dict, idx: int) -> None:
@@ -278,31 +278,30 @@ def _screen_node(d: dict, idx: int) -> None:
     nodes = d["nodes"]
     if not nodes:
         _frame("NODES")
-        _ctext(28, "No nodes found", "md")
+        _ctext(32, "No nodes found", "md")
         return
     n      = nodes[idx % len(nodes)]
     num    = f"{idx % len(nodes) + 1}/{len(nodes)}"
     _frame(f"NODE {num}", d["updated_at"])
-    # Node name in large font, status right-aligned at same baseline
-    _draw.text((3, 13), n["name"][:14], font=F["lg"], fill=255)
+    _draw.text((3, 17), n["name"][:14], font=F["lg"], fill=255)
     status = "READY" if n["ready"] else "DOWN"
     bb     = F["md"].getbbox(status)
-    _draw.text((WIDTH - 3 - (bb[2] - bb[0]), 17), status, font=F["md"], fill=255)
-    _draw.line([(1, 31), (WIDTH - 2, 31)], fill=255, width=1)
-    _row(34, "CPU", f"{n['cpu']} cores")
-    _row(47, "RAM", f"{n['mem_mb'] / 1024:.1f} GB")
+    _draw.text((WIDTH - 3 - (bb[2] - bb[0]), 21), status, font=F["md"], fill=255)
+    _draw.line([(1, 35), (WIDTH - 2, 35)], fill=255, width=1)
+    _row(38, "CPU", f"{n['cpu']} cores")
+    _row(51, "RAM", f"{n['mem_mb'] / 1024:.1f} GB")
 
 
 def _screen_deployments(d: dict) -> None:
-    """Hero '6 / 7' number centred in xl font, then progress bar + label."""
+    """Hero '6 / 7' number centred in xl font, then progress bar + percentage."""
     _clear()
     deps  = d["deps"]
     total = max(deps["total"], 1)
     pct   = deps["ready"] * 100 // total
     _frame("DEPLOYMENTS", d["updated_at"])
-    _ctext(13, f"{deps['ready']} / {deps['total']}", "xl")  # 24 px hero
-    _pbar(3, 40, WIDTH - 6, 10, pct)
-    _ctext(52, f"{pct}%  healthy", "sm")
+    _ctext(16, f"{deps['ready']} / {deps['total']}", "xl")  # 24 px hero
+    _pbar(3, 41, WIDTH - 6, 9, pct)
+    _ctext(51, f"{pct}%  healthy", "md")
 
 
 def _screen_health(d: dict) -> None:
@@ -320,26 +319,38 @@ def _screen_health(d: dict) -> None:
         bb = F["md"].getbbox(detail)
         _draw.text((WIDTH - 3 - (bb[2] - bb[0]), y), detail, font=F["md"], fill=255)
 
-    _hrow(13, "Nodes",       nr == nt,                      f"{nr}/{nt}")
-    _hrow(25, "Pods",        d["pods"]["failed"] == 0,      f"{d['pods']['failed']} err")
-    _hrow(37, "Deployments", deps["ready"] == deps["total"],
+    _hrow(17, "Nodes",       nr == nt,                      f"{nr}/{nt}")
+    _hrow(28, "Pods",        d["pods"]["failed"] == 0,      f"{d['pods']['failed']} err")
+    _hrow(39, "Deployments", deps["ready"] == deps["total"],
           f"{deps['ready']}/{deps['total']}")
 
 # ── Screen Sequencer ──────────────────────────────────────────────────────────
 
-SCREENS = ["overview", "pods", "node", "deployments", "health"]
+def _build_screen_list(nodes: list) -> list:
+    """Build the rotation, inserting one screen per discovered node.
 
-def _render(name: str, data: dict, node_idx: int) -> int:
-    """Render the named screen. Returns (possibly advanced) node_idx."""
-    if   name == "overview":     _screen_overview(data)
-    elif name == "pods":         _screen_pods(data)
-    elif name == "node":
-        _screen_node(data, node_idx)
-        if data["nodes"]:
-            node_idx = (node_idx + 1) % len(data["nodes"])
-    elif name == "deployments":  _screen_deployments(data)
-    elif name == "health":       _screen_health(data)
-    return node_idx
+    Example with 3 nodes:
+      overview → pods → node-0 → node-1 → node-2 → deployments → health
+    """
+    screens: list = ["overview", "pods"]
+    for i in range(max(len(nodes), 1)):
+        screens.append(("node", i))
+    screens += ["deployments", "health"]
+    return screens
+
+
+def _render(screen, data: dict) -> None:
+    """Render one screen. screen is a str or a ("node", idx) tuple."""
+    if screen == "overview":
+        _screen_overview(data)
+    elif screen == "pods":
+        _screen_pods(data)
+    elif isinstance(screen, tuple) and screen[0] == "node":
+        _screen_node(data, screen[1])
+    elif screen == "deployments":
+        _screen_deployments(data)
+    elif screen == "health":
+        _screen_health(data)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -361,24 +372,26 @@ def main() -> None:
     data:       dict  = {}
     last_fetch: float = 0.0
     screen_idx: int   = 0
-    node_idx:   int   = 0
+    screens:    list  = _build_screen_list([])
 
     while True:
         now = time.monotonic()
 
-        # Refresh cluster data when due
+        # Refresh cluster data when due; also rebuild the screen list so
+        # newly added/removed nodes are picked up automatically.
         if now - last_fetch >= FETCH_INTERVAL or not data:
             data       = fetch_cluster_data()
             last_fetch = now
+            screens    = _build_screen_list(data.get("nodes", []))
 
         # Render current screen
         if data.get("error"):
             _screen_error(data["error"])
         else:
-            node_idx = _render(SCREENS[screen_idx % len(SCREENS)], data, node_idx)
+            _render(screens[screen_idx % len(screens)], data)
 
         _flush()
-        screen_idx = (screen_idx + 1) % len(SCREENS)
+        screen_idx = (screen_idx + 1) % len(screens)
         time.sleep(SCREEN_DURATION)
 
 
